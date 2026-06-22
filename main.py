@@ -52,7 +52,8 @@ class VirtualMouseApp:
     def start_camera(self):
         """Open the webcam and start processing frames."""
         try:
-            self.cap = cv2.VideoCapture(0)
+            self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
             self.cap.set(cv2.CAP_PROP_FPS, 30)

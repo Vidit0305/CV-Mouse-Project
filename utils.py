@@ -33,8 +33,8 @@ SMOOTHING_FACTOR = 0.8   # EMA factor: higher = more responsive cursor
 SENSITIVITY = 1.5        # Mouse speed multiplier
 
 # Adaptive smoothing thresholds
-_SMOOTH_HEAVY = 0.35     # For small/jittery movements — filter noise
-_SMOOTH_LIGHT = 0.85     # For large/intentional movements — instant response
+_SMOOTH_HEAVY = 0.10     # For small/jittery movements — heavy filtering (smoother)
+_SMOOTH_LIGHT = 0.45     # For large/intentional movements — balanced response
 _VELOCITY_THRESHOLD = 50  # Pixel movement above which we switch to light smoothing
 
 # ─── Camera Frame ROI (Region of Interest) ───────────────────────────
