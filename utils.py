@@ -29,8 +29,13 @@ SCROLL_THRESHOLD = 8                # Vertical pixel movement to trigger scroll
 SCROLL_SPEED = 5                    # Scroll amount per frame
 
 # ─── Cursor Smoothing ────────────────────────────────────────────────
-SMOOTHING_FACTOR = 0.7   # EMA factor: higher = more responsive cursor
+SMOOTHING_FACTOR = 0.8   # EMA factor: higher = more responsive cursor
 SENSITIVITY = 1.5        # Mouse speed multiplier
+
+# Adaptive smoothing thresholds
+_SMOOTH_HEAVY = 0.35     # For small/jittery movements — filter noise
+_SMOOTH_LIGHT = 0.85     # For large/intentional movements — instant response
+_VELOCITY_THRESHOLD = 50  # Pixel movement above which we switch to light smoothing
 
 # ─── Camera Frame ROI (Region of Interest) ───────────────────────────
 # Use inner portion of the camera frame for comfortable mapping
@@ -121,7 +126,12 @@ class FPSCounter:
 
 
 class CursorSmoother:
-    """Exponential moving average filter for cursor position."""
+    """Adaptive exponential moving average filter for cursor position.
+
+    Uses velocity-based adaptive smoothing:
+    - Small movements (jitter): heavy smoothing to filter noise
+    - Large movements (intentional): light smoothing for instant response
+    """
 
     def __init__(self, smoothing=SMOOTHING_FACTOR):
         self.smoothing = smoothing
@@ -129,13 +139,28 @@ class CursorSmoother:
         self.prev_y = None
 
     def smooth(self, x, y):
-        """Apply EMA smoothing to the given (x, y) position."""
+        """Apply adaptive EMA smoothing to the given (x, y) position."""
         if self.prev_x is None:
             self.prev_x = x
             self.prev_y = y
             return x, y
 
-        s = self.smoothing
+        # Calculate movement distance to determine smoothing strength
+        dx = x - self.prev_x
+        dy = y - self.prev_y
+        distance = math.sqrt(dx * dx + dy * dy)
+
+        # Adaptive factor: large movements get light smoothing (responsive),
+        # small movements get heavy smoothing (stable)
+        if distance > _VELOCITY_THRESHOLD:
+            s = _SMOOTH_LIGHT
+        elif distance < 10:
+            s = _SMOOTH_HEAVY
+        else:
+            # Linear interpolation between heavy and light
+            t = (distance - 10) / (_VELOCITY_THRESHOLD - 10)
+            s = _SMOOTH_HEAVY + t * (_SMOOTH_LIGHT - _SMOOTH_HEAVY)
+
         smooth_x = self.prev_x + s * (x - self.prev_x)
         smooth_y = self.prev_y + s * (y - self.prev_y)
         self.prev_x = smooth_x
@@ -194,8 +219,22 @@ def map_coordinates(x, y, frame_w, frame_h, sensitivity=SENSITIVITY):
 
 
 def is_finger_up(landmarks, finger_tip_id, finger_pip_id):
-    """Check if a finger is extended (tip is above PIP joint in image coords)."""
-    return landmarks[finger_tip_id][1] < landmarks[finger_pip_id][1]
+    """Check if a finger is extended using distance from wrist.
+
+    An extended finger has its tip farther from the wrist than its PIP joint.
+    This works regardless of hand tilt or camera angle — unlike the naive
+    y-coordinate comparison (tip.y < pip.y) which breaks with tilted hands.
+    """
+    wrist = landmarks[WRIST]
+    tip = landmarks[finger_tip_id]
+    pip = landmarks[finger_pip_id]
+
+    # Distance from wrist to fingertip
+    dist_tip = math.hypot(tip[0] - wrist[0], tip[1] - wrist[1])
+    # Distance from wrist to PIP/MCP joint
+    dist_joint = math.hypot(pip[0] - wrist[0], pip[1] - wrist[1])
+
+    return dist_tip > dist_joint
 
 
 def get_landmark_pixel_coords(landmark, frame_w, frame_h):

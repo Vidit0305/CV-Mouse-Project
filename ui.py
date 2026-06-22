@@ -35,6 +35,13 @@ class VirtualMouseUI:
         self.root.geometry("800x600")
         self.root.minsize(320, 240)
 
+        # Keep window always on top — prevents it from being hidden/minimized
+        # when the cursor moves and clicks outside the window via gestures
+        self.root.attributes("-topmost", True)
+
+        # Prevent accidental minimization (e.g. cursor clicking the taskbar)
+        self.root.bind("<Unmap>", self._prevent_minimize)
+
         # State
         self.camera_active = False
         self.click_flash_time = 0
@@ -63,7 +70,23 @@ class VirtualMouseUI:
         self.reset_btn = tk.Button(self.root)
         self.exit_btn = tk.Button(self.root)
 
+    # ─── Window Protection ────────────────────────────────────────
+
+    def _prevent_minimize(self, event=None):
+        """Immediately restore window if accidentally minimized by gestures."""
+        if self.root.state() == "iconic":
+            self.root.after(50, self._restore_window)
+
+    def _restore_window(self):
+        """Restore from minimized state."""
+        try:
+            self.root.deiconify()
+            self.root.attributes("-topmost", True)
+        except Exception:
+            pass
+
     # ─── Resize Handling ──────────────────────────────────────────
+
 
     def _on_resize(self, event=None):
         """Debounced resize handler."""
@@ -72,16 +95,20 @@ class VirtualMouseUI:
         self._resize_timer = self.root.after(100, self._do_resize)
 
     def _do_resize(self):
-        """Compute new display dimensions — stretch to fill entire window."""
+        """Compute new display dimensions — stretch to fill, capped at 640×480.
+
+        The source frame is 320×240, so upscaling beyond 640×480 is wasted
+        computation with no visual benefit.
+        """
         self._resize_timer = None
         try:
             win_w = self.root.winfo_width()
             win_h = self.root.winfo_height()
 
             if win_w > 10 and win_h > 10:
-                # Fill entire window (no aspect ratio lock)
-                self.display_width = max(320, win_w)
-                self.display_height = max(240, win_h)
+                # Fill window but cap to avoid huge PIL images
+                self.display_width = max(320, min(win_w, 640))
+                self.display_height = max(240, min(win_h, 480))
         except Exception:
             pass
 

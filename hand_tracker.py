@@ -7,6 +7,8 @@ Performance optimizations:
 """
 
 import os
+import shutil
+import tempfile
 import time
 import cv2
 import numpy as np
@@ -21,6 +23,37 @@ from utils import get_landmark_pixel_coords
 
 # Path to the hand landmarker model
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "assets", "hand_landmarker.task")
+
+# Inference resolution — matches camera resolution for best landmark accuracy.
+# Other optimizations (capped display, Win32 API, adaptive smoothing) keep FPS good.
+INFERENCE_WIDTH = 320
+INFERENCE_HEIGHT = 240
+
+
+def _get_safe_model_path(original_path):
+    """
+    Return an ASCII-safe path to the model file.
+
+    MediaPipe's C library cannot open files from paths containing Unicode
+    characters (e.g. emoji like ☑️). If the original path is ASCII-safe,
+    return it directly. Otherwise, copy the model to a temp directory with
+    a clean ASCII path.
+    """
+    try:
+        original_path.encode("ascii")
+        return original_path  # Path is ASCII-safe
+    except UnicodeEncodeError:
+        pass
+
+    # Copy to a temp directory with an ASCII-safe path
+    safe_dir = os.path.join(tempfile.gettempdir(), "ai_mouse_model")
+    os.makedirs(safe_dir, exist_ok=True)
+    safe_path = os.path.join(safe_dir, "hand_landmarker.task")
+
+    if not os.path.exists(safe_path):
+        shutil.copy2(original_path, safe_path)
+
+    return safe_path
 
 
 class HandTracker:
@@ -40,9 +73,12 @@ class HandTracker:
                 "hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
             )
 
+        # Get an ASCII-safe path (MediaPipe C lib can't handle Unicode in paths)
+        safe_model_path = _get_safe_model_path(MODEL_PATH)
+
         # VIDEO mode: enables temporal tracking across frames (much faster than IMAGE)
         options = HandLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=MODEL_PATH),
+            base_options=BaseOptions(model_asset_path=safe_model_path),
             running_mode=RunningMode.VIDEO,
             num_hands=max_hands,
             min_hand_detection_confidence=detection_confidence,
@@ -75,6 +111,10 @@ class HandTracker:
         """
         Process a BGR frame and detect hand landmarks using VIDEO mode.
 
+        The frame is downscaled to INFERENCE_WIDTH×INFERENCE_HEIGHT before
+        inference for speed. MediaPipe returns normalized (0.0–1.0) coords,
+        so we map them back to the original frame dimensions.
+
         Args:
             frame: BGR image from OpenCV.
 
@@ -84,11 +124,15 @@ class HandTracker:
         """
         frame_h, frame_w = frame.shape[:2]
 
-        # Convert BGR to RGB for MediaPipe
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # Downscale for inference — 4× fewer pixels than 320×240
+        small_frame = cv2.resize(frame, (INFERENCE_WIDTH, INFERENCE_HEIGHT),
+                                 interpolation=cv2.INTER_NEAREST)
+
+        # Convert BGR to RGB for MediaPipe (on the small frame — very cheap)
+        rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
         # Create MediaPipe Image
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_small)
 
         # Use real timestamps (VIDEO mode requires monotonically increasing timestamps)
         current_ms = int(time.time() * 1000)

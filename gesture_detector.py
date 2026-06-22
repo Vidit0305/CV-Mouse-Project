@@ -16,7 +16,7 @@ from collections import deque
 from utils import (
     is_finger_up,
     INDEX_TIP, INDEX_PIP,
-    MIDDLE_TIP, MIDDLE_PIP,
+    MIDDLE_TIP, MIDDLE_PIP, MIDDLE_MCP,
     RING_TIP, RING_PIP,
     PINKY_TIP, PINKY_PIP,
     THUMB_TIP, THUMB_IP,
@@ -96,6 +96,10 @@ class GestureDetector:
         ring_up = is_finger_up(landmarks, RING_TIP, RING_PIP)
         pinky_up = is_finger_up(landmarks, PINKY_TIP, PINKY_PIP)
 
+        # Relaxed middle finger check: compare tip vs MCP (knuckle) instead
+        # of PIP — much more forgiving for slightly bent middle fingers.
+        middle_up_relaxed = is_finger_up(landmarks, MIDDLE_TIP, MIDDLE_MCP)
+
         # Count extended fingers (excluding thumb for reliability)
         fingers_up = sum([index_up, middle_up, ring_up, pinky_up])
 
@@ -124,7 +128,9 @@ class GestureDetector:
             return self.RIGHT_CLICK
 
         # ── Priority 3: Scroll (index + middle up, ring + pinky down) ──
-        if index_up and middle_up and not ring_up and not pinky_up:
+        # Uses relaxed middle finger check (tip vs MCP knuckle) so a slightly
+        # bent middle finger still triggers scroll.
+        if index_up and middle_up_relaxed and not ring_up and not pinky_up:
             # Track vertical position of midpoint between index and middle tips
             mid_y = (landmarks[INDEX_TIP][1] + landmarks[MIDDLE_TIP][1]) * 0.5
             self.scroll_history.append(mid_y)
